@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Statystyki - Płuca Planety</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        * { border-radius: 0 !important; }
+        body { font-family: 'Helvetica', 'Arial', sans-serif; background-color: #f8fafc; color: #0f172a; }
+        .stat-card { background: white; border: 2px solid black; padding: 1.5rem; box-shadow: 4px 4px 0px 0px rgba(0,0,0,1); }
+        .table-header { background: #064e3b; color: white; }
+        .row-even { background: #f1f5f9; }
+        .loading-pulse { animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .5; } }
+    </style>
+</head>
+<body class="min-h-screen">
+
+    <nav class="bg-[#064e3b] text-white p-6 border-b-4 border-black">
+        <div class="container mx-auto flex justify-between items-center">
+            <div>
+                <h1 class="text-2xl font-black tracking-tighter uppercase">PŁUCA PLANETY - PANEL WYNIKÓW</h1>
+                <p class="text-xs font-bold opacity-80 uppercase">Statystyki na żywo z bazy danych</p>
+            </div>
+            <div id="connection-status" class="flex items-center gap-2 text-xs font-bold bg-black px-3 py-1">
+                <div class="w-2 h-2 bg-yellow-500 rounded-full animate-pulse"></div>
+                ŁĄCZENIE...
+            </div>
+        </div>
+    </nav>
+
+    <main class="container mx-auto p-6 space-y-8">
+        
+        <!-- Sekcja Statystyk Ogólnych -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div class="stat-card">
+                <p class="text-xs font-bold text-gray-500 uppercase mb-1">Średnia Szkoły</p>
+                <h2 id="avg-school" class="text-4xl font-black">--</h2>
+                <div id="avg-school-perc" class="text-sm font-bold text-green-600">--%</div>
+            </div>
+            <div class="stat-card">
+                <p class="text-xs font-bold text-gray-500 uppercase mb-1">Liczba Uczestników</p>
+                <h2 id="total-users" class="text-4xl font-black">0</h2>
+                <div class="text-sm font-bold text-blue-600 italic">Aktywnych dzisiaj</div>
+            </div>
+            <div class="stat-card">
+                <p class="text-xs font-bold text-gray-500 uppercase mb-1">Najlepsza Klasa</p>
+                <h2 id="best-class" class="text-4xl font-black text-[#059669]">--</h2>
+                <div id="best-class-score" class="text-sm font-bold">-- pkt śr.</div>
+            </div>
+        </div>
+
+        <!-- Sekcja Rankingów Klas -->
+        <div class="bg-white border-2 border-black p-6 shadow-[8px_8px_0px_0px_rgba(0,0,0,0.1)]">
+            <h3 class="text-xl font-black mb-6 uppercase tracking-tight flex items-center gap-2">
+                <span class="w-2 h-6 bg-black"></span> Ranking Klas
+            </h3>
+            <div class="overflow-x-auto">
+                <table class="w-full text-left border-collapse">
+                    <thead>
+                        <tr class="table-header border-2 border-black">
+                            <th class="p-4 uppercase text-xs font-bold">Klasa</th>
+                            <th class="p-4 uppercase text-xs font-bold text-center">Uczestników</th>
+                            <th class="p-4 uppercase text-xs font-bold text-center">Średni wynik</th>
+                            <th class="p-4 uppercase text-xs font-bold text-center">Skuteczność</th>
+                        </tr>
+                    </thead>
+                    <tbody id="class-ranking-body">
+                        <!-- Generowane przez JS -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Sekcja Ostatnich Wyników -->
+        <div class="bg-white border-2 border-black p-6 shadow-[8px_8px_0px_0px_rgba(0,0,0,0.1)]">
+            <div class="flex justify-between items-center mb-6">
+                <h3 class="text-xl font-black uppercase tracking-tight flex items-center gap-2">
+                    <span class="w-2 h-6 bg-[#059669]"></span> Wyniki Indywidualne
+                </h3>
+                <input type="text" id="search-input" placeholder="Szukaj ucznia..." class="border-2 border-black p-2 text-xs font-bold w-48">
+            </div>
+            <div class="overflow-x-auto max-h-[500px] overflow-y-auto">
+                <table class="w-full text-left border-collapse">
+                    <thead class="sticky top-0 bg-white z-10">
+                        <tr class="border-b-2 border-black">
+                            <th class="p-4 uppercase text-xs font-bold">Uczeń</th>
+                            <th class="p-4 uppercase text-xs font-bold">Klasa</th>
+                            <th class="p-4 uppercase text-xs font-bold text-center">Wynik</th>
+                            <th class="p-4 uppercase text-xs font-bold text-right">Data/Godzina</th>
+                        </tr>
+                    </thead>
+                    <tbody id="results-body">
+                        <!-- Generowane przez JS -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+    </main>
+
+    <footer class="p-12 text-center text-gray-500 text-[10px] font-bold uppercase tracking-widest">
+        SP387 WARSZAWA • SYSTEM MONITORINGU WYNIKÓW DZIEŃ ZIEMI
+    </footer>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-app.js";
+        import { getFirestore, collection, query, onSnapshot, orderBy } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-firestore.js";
+        import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-auth.js";
+
+        // Konfiguracja (Musi być identyczna jak w quizie)
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
+            apiKey: "AIzaSyAGxPJ2tfii603Vm8vmHNVH8FfQjBmBWRQ",
+            authDomain: "sp387-quiz1.firebaseapp.com",
+            projectId: "sp387-quiz1",
+            storageBucket: "sp387-quiz1.firebasestorage.app",
+            messagingSenderId: "787924877967",
+            appId: "1:787924877967:web:c3a8277c3af88d3e3966fa"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        const auth = getAuth(app);
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'sp387-eko-quiz-v2';
+
+        let allData = [];
+
+        async function init() {
+            try {
+                await signInAnonymously(auth);
+                document.getElementById('connection-status').innerHTML = '<div class="w-2 h-2 bg-green-500 rounded-full"></div> POŁĄCZONO';
+                
+                // Nasłuchiwanie na żywo
+                const scoresRef = collection(db, 'artifacts', appId, 'public', 'data', 'scores');
+                const q = query(scoresRef); // Bez orderBy, żeby uniknąć problemów z indeksami w Firestore
+
+                onSnapshot(q, (snapshot) => {
+                    allData = [];
+                    snapshot.forEach((doc) => {
+                        allData.push({ id: doc.id, ...doc.data() });
+                    });
+                    
+                    // Sortowanie po czasie lokalnie
+                    allData.sort((a, b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0));
+                    
+                    updateUI();
+                }, (error) => {
+                    console.error("Firestore error:", error);
+                    document.getElementById('connection-status').innerHTML = '<div class="w-2 h-2 bg-red-500 rounded-full"></div> BŁĄD BAZY';
+                });
+
+            } catch (e) {
+                console.error("Auth error:", e);
+            }
+        }
+
+        function updateUI() {
+            renderIndividualResults();
+            renderStats();
+            renderClassRanking();
+        }
+
+        function renderStats() {
+            if (allData.length === 0) return;
+
+            const totalScore = allData.reduce((acc, curr) => acc + curr.score, 0);
+            const avg = (totalScore / allData.length).toFixed(2);
+            const avgPerc = ((avg / 12) * 100).toFixed(0);
+
+            document.getElementById('avg-school').innerText = `${avg}/12`;
+            document.getElementById('avg-school-perc').innerText = `${avgPerc}% Skuteczności`;
+            document.getElementById('total-users').innerText = allData.length;
+
+            // Obliczanie najlepszej klasy
+            const classStats = getClassStats();
+            let bestClass = "--";
+            let bestAvg = 0;
+
+            Object.keys(classStats).forEach(c => {
+                if (classStats[c].avg > bestAvg) {
+                    bestAvg = classStats[c].avg;
+                    bestClass = c;
+                }
+            });
+
+            document.getElementById('best-class').innerText = bestClass;
+            document.getElementById('best-class-score').innerText = `${bestAvg.toFixed(2)} pkt śr.`;
+        }
+
+        function getClassStats() {
+            const stats = {};
+            allData.forEach(entry => {
+                const className = entry.class ? entry.class.toUpperCase().trim() : "BRAK";
+                if (!stats[className]) {
+                    stats[className] = { sum: 0, count: 0 };
+                }
+                stats[className].sum += entry.score;
+                stats[className].count += 1;
+            });
+
+            const result = {};
+            Object.keys(stats).forEach(c => {
+                result[c] = {
+                    avg: stats[c].sum / stats[c].count,
+                    count: stats[c].count
+                };
+            });
+            return result;
+        }
+
+        function renderClassRanking() {
+            const stats = getClassStats();
+            const rankingBody = document.getElementById('class-ranking-body');
+            rankingBody.innerHTML = '';
+
+            const sortedClasses = Object.keys(stats).sort((a, b) => stats[b].avg - stats[a].avg);
+
+            sortedClasses.forEach((className, index) => {
+                const s = stats[className];
+                const tr = document.createElement('tr');
+                tr.className = index % 2 === 0 ? "bg-white" : "bg-slate-50";
+                tr.innerHTML = `
+                    <td class="p-4 font-black text-sm">${className}</td>
+                    <td class="p-4 text-center font-bold text-sm text-gray-500">${s.count}</td>
+                    <td class="p-4 text-center font-black text-sm">${s.avg.toFixed(2)} / 12</td>
+                    <td class="p-4 text-center">
+                        <div class="w-full bg-gray-200 h-4 border border-black">
+                            <div class="bg-[#059669] h-full" style="width: ${(s.avg/12*100)}%"></div>
+                        </div>
+                    </td>
+                `;
+                rankingBody.appendChild(tr);
+            });
+        }
+
+        function renderIndividualResults() {
+            const tbody = document.getElementById('results-body');
+            const search = document.getElementById('search-input').value.toLowerCase();
+            tbody.innerHTML = '';
+
+            allData
+                .filter(item => item.name?.toLowerCase().includes(search) || item.class?.toLowerCase().includes(search))
+                .forEach((item, index) => {
+                    const date = item.timestamp?.toDate ? item.timestamp.toDate().toLocaleString('pl-PL') : 'Brak daty';
+                    const tr = document.createElement('tr');
+                    tr.className = `border-b border-gray-100 hover:bg-green-50 transition-colors ${index % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}`;
+                    
+                    // Kolor wyniku
+                    const scoreColor = item.score >= 10 ? 'text-green-600' : (item.score >= 6 ? 'text-orange-500' : 'text-red-500');
+
+                    tr.innerHTML = `
+                        <td class="p-4 font-bold text-sm">${item.name}</td>
+                        <td class="p-4 text-sm uppercase text-gray-500 font-bold">${item.class}</td>
+                        <td class="p-4 text-center font-black text-lg ${scoreColor}">${item.score}/12</td>
+                        <td class="p-4 text-right text-[10px] font-bold text-gray-400 uppercase">${date}</td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+        }
+
+        document.getElementById('search-input').addEventListener('input', renderIndividualResults);
+
+        window.onload = init;
+    </script>
+</body>
+</html>
